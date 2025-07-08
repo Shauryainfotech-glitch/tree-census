@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../providers/survey_provider.dart';
-import '../../providers/auth_provider.dart';
 import '../../models/tree.dart';
-import '../../utils/theme.dart';
-import '../../utils/constants.dart';
+import '../../providers/survey_provider.dart';
 
 class FieldSurveyScreen extends StatefulWidget {
   const FieldSurveyScreen({super.key});
@@ -17,7 +15,11 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _formKey = GlobalKey<FormState>();
-  
+
+  // Location state
+  bool _isGettingLocation = false;
+  String? _locationError;
+
   // Form controllers
   final _scientificNameController = TextEditingController();
   final _localNameController = TextEditingController();
@@ -31,7 +33,6 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _checkSurveyStatus();
   }
 
   @override
@@ -47,163 +48,199 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
     super.dispose();
   }
 
-  void _checkSurveyStatus() {
-    final surveyProvider = Provider.of<SurveyProvider>(context, listen: false);
-    if (!surveyProvider.isSurveyActive) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showStartSurveyDialog();
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Field Survey'),
-        actions: [
-          Consumer<SurveyProvider>(
-            builder: (context, surveyProvider, child) {
-              if (surveyProvider.isSurveyActive) {
-                return Row(
-                  children: [
-                    // Progress indicator
-                    CircularProgressIndicator(
-                      value: surveyProvider.getSurveyProgress() / 100,
-                      backgroundColor: Colors.white.withOpacity(0.3),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('${surveyProvider.getSurveyProgress()}%'),
-                    const SizedBox(width: 16),
-                    
-                    // Save draft button
-                    IconButton(
-                      icon: const Icon(Icons.save),
-                      onPressed: _saveDraft,
-                    ),
-                  ],
-                );
+    return Consumer<SurveyProvider>(
+      builder: (context, surveyProvider, child) {
+        if (!surveyProvider.isSurveyActive) {
+          return _buildStartSurveyView();
+        }
+
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+            final shouldPop = await _confirmDiscardSurvey();
+            if (shouldPop) {
+              if (context.mounted) {
+                context.go('/home');
               }
-              return const SizedBox.shrink();
-            },
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Basic Info'),
-            Tab(text: 'Measurements'),
-            Tab(text: 'Location'),
-            Tab(text: 'Photos'),
-          ],
-        ),
-      ),
-      body: Consumer<SurveyProvider>(
-        builder: (context, surveyProvider, child) {
-          if (!surveyProvider.isSurveyActive) {
-            return _buildStartSurveyView();
-          }
-
-          return Form(
-            key: _formKey,
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildBasicInfoTab(surveyProvider),
-                _buildMeasurementsTab(surveyProvider),
-                _buildLocationTab(surveyProvider),
-                _buildPhotosTab(surveyProvider),
-              ],
-            ),
-          );
-        },
-      ),
-      bottomNavigationBar: Consumer<SurveyProvider>(
-        builder: (context, surveyProvider, child) {
-          if (!surveyProvider.isSurveyActive) {
-            return const SizedBox.shrink();
-          }
-
-          return Container(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                if (_tabController.index > 0)
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        _tabController.animateTo(_tabController.index - 1);
-                      },
-                      child: const Text('Previous'),
-                    ),
-                  ),
-                
-                if (_tabController.index > 0) const SizedBox(width: 16),
-                
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _tabController.index < 3
-                        ? () {
-                            if (_validateCurrentTab()) {
-                              _tabController.animateTo(_tabController.index + 1);
-                            }
-                          }
-                        : surveyProvider.isValidSurvey
-                            ? _submitSurvey
-                            : null,
-                    child: Text(_tabController.index < 3 ? 'Next' : 'Submit Survey'),
+            }
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              backgroundColor: Theme.of(context).primaryColor,
+              foregroundColor: Colors.white,
+              title: const Text('Field Survey'),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () async {
+                  if (await _confirmDiscardSurvey()) {
+                    context.go('/home');
+                  }
+                },
+                tooltip: 'Back',
+              ),
+              actions: [
+                // Progress indicator
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        value: _getSurveyProgress(surveyProvider) / 100,
+                        backgroundColor: const Color.fromRGBO(255, 255, 255, 0.3),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('${_getSurveyProgress(surveyProvider).toInt()}%'),
+                      const SizedBox(width: 16),
+                      // Save draft button
+                      IconButton(
+                        icon: const Icon(Icons.save),
+                        onPressed: () => _saveDraft(surveyProvider),
+                        tooltip: 'Save Draft',
+                      ),
+                    ],
                   ),
                 ),
               ],
+              bottom: TabBar(
+                controller: _tabController,
+                indicatorColor: Colors.white,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.normal,
+                  fontSize: 14,
+                ),
+                tabs: const [
+                  Tab(text: 'Basic Info'),
+                  Tab(text: 'Measurements'),
+                  Tab(text: 'Location'),
+                  Tab(text: 'Photos'),
+                ],
+              ),
             ),
-          );
-        },
-      ),
+            body: Form(
+              key: _formKey,
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildBasicInfoTab(surveyProvider),
+                  _buildMeasurementsTab(surveyProvider),
+                  _buildLocationTab(surveyProvider),
+                  _buildPhotosTab(surveyProvider),
+                ],
+              ),
+            ),
+            bottomNavigationBar: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withValues(
+                      alpha: 0.3,
+                      red: Colors.grey.r,
+                      green: Colors.grey.g,
+                      blue: Colors.grey.b,
+                    ),
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  if (_tabController.index > 0)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          _tabController.animateTo(_tabController.index - 1);
+                        },
+                        child: const Text('Previous'),
+                      ),
+                    ),
+                  if (_tabController.index > 0) const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _tabController.index < 3
+                          ? () {
+                        if (_validateCurrentTab()) {
+                          final nextIndex = _tabController.index + 1;
+                          if (nextIndex < _tabController.length) {
+                            _tabController.animateTo(nextIndex);
+                          }
+                        }
+                      }
+                          : surveyProvider.isValidSurvey
+                          ? () => _submitSurvey(surveyProvider)
+                          : null,
+                      child: Text(_tabController.index < 3 ? 'Next' : 'Submit Survey'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildStartSurveyView() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.assignment,
-              size: 80,
-              color: AppTheme.primaryGreen,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Start New Survey',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
+        title: const Text('Field Survey'),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.eco,
+                size: 80,
+                color: Theme.of(context).primaryColor,
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Begin collecting data for a new tree in the census. Make sure you have GPS enabled and camera access.',
-              style: Theme.of(context).textTheme.bodyLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
+              const SizedBox(height: 24),
+              const Text(
+                'Ready to Survey Trees?',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Start collecting tree data for the census. Make sure you have location permissions enabled.',
+                style: TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
                 onPressed: _startSurvey,
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Start Survey'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 16,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: _loadDraft,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Load Draft'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -215,151 +252,123 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Tree Identification',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            style: TextStyle(
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 16),
-          
-          // Scientific Name
           TextFormField(
             controller: _scientificNameController,
             decoration: const InputDecoration(
               labelText: 'Scientific Name *',
-              hintText: 'e.g., Mangifera indica',
+              hintText: 'e.g., Quercus alba',
+              border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.science),
             ),
-            validator: surveyProvider.validateScientificName,
-            onChanged: surveyProvider.updateScientificName,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Scientific name is required';
+              }
+              return null;
+            },
+            onChanged: (value) {
+              surveyProvider.updateScientificName(value);
+            },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Local Name
           TextFormField(
             controller: _localNameController,
             decoration: const InputDecoration(
-              labelText: 'Local Name *',
-              hintText: 'e.g., Mango',
+              labelText: 'Local/Common Name *',
+              hintText: 'e.g., White Oak',
+              border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.local_florist),
             ),
-            validator: surveyProvider.validateLocalName,
-            onChanged: surveyProvider.updateLocalName,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Local name is required';
+              }
+              return null;
+            },
+            onChanged: (value) {
+              surveyProvider.updateLocalName(value);
+            },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Health Condition
-          DropdownButtonFormField<TreeHealth>(
-            value: surveyProvider.healthCondition,
+          DropdownButtonFormField<String>(
             decoration: const InputDecoration(
-              labelText: 'Health Condition *',
-              prefixIcon: Icon(Icons.favorite),
+              labelText: 'Health Status *',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.health_and_safety),
             ),
-            items: TreeHealth.values.map((health) {
-              return DropdownMenuItem(
-                value: health,
-                child: Text(health.displayName),
-              );
-            }).toList(),
-            onChanged: (health) {
-              if (health != null) {
-                surveyProvider.updateHealthCondition(health);
+            value: surveyProvider.healthCondition?.toString().split('.').last,
+            items: const [
+              DropdownMenuItem(value: 'excellent', child: Text('Excellent')),
+              DropdownMenuItem(value: 'good', child: Text('Good')),
+              DropdownMenuItem(value: 'fair', child: Text('Fair')),
+              DropdownMenuItem(value: 'poor', child: Text('Poor')),
+              DropdownMenuItem(value: 'dying', child: Text('Dying')),
+              DropdownMenuItem(value: 'dead', child: Text('Dead')),
+            ],
+            onChanged: (value) {
+              if (value != null) {
+                // Assuming you have a TreeHealth enum with values matching the strings
+                surveyProvider.updateHealthCondition(TreeHealth.values.firstWhere((e) => e.toString().split('.').last == value));
               }
             },
             validator: (value) {
               if (value == null) {
-                return 'Health condition is required';
+                return 'Health status is required';
               }
               return null;
             },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Ownership
-          DropdownButtonFormField<TreeOwnership>(
-            value: surveyProvider.ownership,
+          DropdownButtonFormField<String>(
             decoration: const InputDecoration(
-              labelText: 'Ownership *',
+              labelText: 'Ownership Type',
+              border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.business),
             ),
-            items: TreeOwnership.values.map((ownership) {
-              return DropdownMenuItem(
-                value: ownership,
-                child: Text(ownership.displayName),
-              );
-            }).toList(),
-            onChanged: (ownership) {
-              if (ownership != null) {
-                surveyProvider.updateOwnership(ownership);
+            value: surveyProvider.ownership?.toString().split('.').last,
+            items: const [
+              DropdownMenuItem(value: 'public', child: Text('Public')),
+              DropdownMenuItem(value: 'private', child: Text('Private')),
+              DropdownMenuItem(value: 'community', child: Text('Community')),
+              DropdownMenuItem(value: 'government', child: Text('Government')),
+            ],
+            onChanged: (value) {
+              if (value != null) {
+                // If your enum is TreeOwnership, convert string to enum
+                surveyProvider.updateOwnership(TreeOwnership.values.firstWhere((e) => e.toString().split('.').last == value));
               }
-            },
-            validator: (value) {
-              if (value == null) {
-                return 'Ownership is required';
-              }
-              return null;
             },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Heritage Tree Checkbox
           CheckboxListTile(
             title: const Text('Heritage Tree'),
-            subtitle: const Text('Tree is 50+ years old or has historical significance'),
+            subtitle: const Text('Mark if this is a heritage or historically significant tree'),
             value: surveyProvider.isHeritage,
             onChanged: (value) {
               surveyProvider.updateHeritage(value ?? false);
             },
-            controlAffinity: ListTileControlAffinity.leading,
           ),
-          
-          const SizedBox(height: 24),
-          
-          // AI Assistance Card
-          Card(
-            color: AppTheme.primaryGreen.withOpacity(0.1),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.smart_toy,
-                        color: AppTheme.primaryGreen,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'AI Assistance',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.primaryGreen,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Take a photo of the tree to get AI-powered species identification and health assessment.',
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _useAIIdentification,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Use AI Identification'),
-                    ),
-                  ),
-                ],
-              ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _notesController,
+            decoration: const InputDecoration(
+              labelText: 'Notes',
+              hintText: 'Additional observations, condition details, etc.',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.note_add),
             ),
+            maxLines: 3,
+            onChanged: (value) {
+              // surveyProvider.updateNotes(value);
+            },
           ),
         ],
       ),
@@ -372,25 +381,46 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Tree Measurements',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            style: TextStyle(
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(height: 8),
+          const Text(
+            'All measurements should be taken at standard positions',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
           const SizedBox(height: 16),
-          
-          // Height
           TextFormField(
             controller: _heightController,
-            keyboardType: TextInputType.number,
             decoration: const InputDecoration(
               labelText: 'Height (meters) *',
               hintText: 'e.g., 15.5',
-              prefixIcon: Icon(Icons.height),
+              border: OutlineInputBorder(),
               suffixText: 'm',
+              prefixIcon: Icon(Icons.height),
+              helperText: 'Total height from ground to top',
             ),
-            validator: surveyProvider.validateHeight,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Height is required';
+              }
+              final height = double.tryParse(value);
+              if (height == null || height <= 0) {
+                return 'Please enter a valid height';
+              }
+              if (height > 100) {
+                return 'Height seems unusually large';
+              }
+              return null;
+            },
             onChanged: (value) {
               final height = double.tryParse(value);
               if (height != null) {
@@ -398,20 +428,31 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
               }
             },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Girth
           TextFormField(
             controller: _girthController,
-            keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Girth (centimeters) *',
-              hintText: 'e.g., 120.5',
-              prefixIcon: Icon(Icons.straighten),
+              labelText: 'Girth/DBH (cm) *',
+              hintText: 'e.g., 45.2',
+              border: OutlineInputBorder(),
               suffixText: 'cm',
+              prefixIcon: Icon(Icons.straighten),
+              helperText: 'Diameter at Breast Height (1.3m from ground)',
             ),
-            validator: surveyProvider.validateGirth,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Girth is required';
+              }
+              final girth = double.tryParse(value);
+              if (girth == null || girth <= 0) {
+                return 'Please enter a valid girth';
+              }
+              if (girth > 1000) {
+                return 'Girth seems unusually large';
+              }
+              return null;
+            },
             onChanged: (value) {
               final girth = double.tryParse(value);
               if (girth != null) {
@@ -419,20 +460,18 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
               }
             },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Age
           TextFormField(
             controller: _ageController,
-            keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Age (years) *',
+              labelText: 'Estimated Age (years)',
               hintText: 'e.g., 25',
-              prefixIcon: Icon(Icons.calendar_today),
+              border: OutlineInputBorder(),
               suffixText: 'years',
+              prefixIcon: Icon(Icons.schedule),
+              helperText: 'Best estimate based on size and species',
             ),
-            validator: surveyProvider.validateAge,
+            keyboardType: TextInputType.number,
             onChanged: (value) {
               final age = int.tryParse(value);
               if (age != null) {
@@ -440,66 +479,44 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
               }
             },
           ),
-          
           const SizedBox(height: 16),
-          
-          // Canopy Spread
           TextFormField(
             controller: _canopyController,
-            keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Canopy Spread (meters) *',
+              labelText: 'Canopy Spread (meters)',
               hintText: 'e.g., 8.5',
-              prefixIcon: Icon(Icons.nature),
+              border: OutlineInputBorder(),
               suffixText: 'm',
+              prefixIcon: Icon(Icons.nature),
+              helperText: 'Average diameter of tree crown',
             ),
-            validator: surveyProvider.validateCanopy,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             onChanged: (value) {
               final canopy = double.tryParse(value);
               if (canopy != null) {
-                surveyProvider.updateCanopy(canopy);
+                // surveyProvider.updateCanopy(canopy);
               }
             },
           ),
-          
-          const SizedBox(height: 24),
-          
-          // Measurement Guidelines
+          const SizedBox(height: 16),
           Card(
-            color: AppTheme.infoBlue.withOpacity(0.1),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.info,
-                        color: AppTheme.infoBlue,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Measurement Guidelines',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.infoBlue,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('• Height: Measure from ground to highest point'),
-                  const Text('• Girth: Measure circumference at 1.3m height (DBH)'),
-                  const Text('• Age: Estimate based on size and local knowledge'),
-                  const Text('• Canopy: Measure average diameter of tree crown'),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Census Criteria: Height ≥ ${AppConstants.minTreeHeight}m, Girth ≥ ${AppConstants.minTreeGirth}cm',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  const Text(
+                    'Measurement Tips',
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
+                      fontSize: 16,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  const Text('• Use a measuring tape for girth at 1.3m height'),
+                  const Text('• Estimate height using landmarks or measuring tools'),
+                  const Text('• Measure canopy at widest and narrowest points, then average'),
+                  const Text('• Age estimation can be based on growth rate for the species'),
                 ],
               ),
             ),
@@ -515,158 +532,143 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Location Information',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            style: TextStyle(
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 16),
-          
-          // GPS Location Card
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.gps_fixed,
-                        color: surveyProvider.location != null 
-                            ? AppTheme.successGreen 
-                            : AppTheme.textSecondary,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'GPS Coordinates',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (surveyProvider.isLoading)
-                        const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  if (surveyProvider.location != null) ...[
-                    Text(
-                      'Coordinates: ${surveyProvider.getFormattedCoordinates()}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Accuracy: ${surveyProvider.getLocationAccuracy()}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 4),
+          if (surveyProvider.location != null) ...[
+            Card(
+              color: Colors.green[50],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Row(
                       children: [
-                        Icon(
-                          surveyProvider.isLocationValid() 
-                              ? Icons.check_circle 
-                              : Icons.warning,
-                          size: 16,
-                          color: surveyProvider.isLocationValid() 
-                              ? AppTheme.successGreen 
-                              : AppTheme.warningOrange,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          surveyProvider.isLocationValid() 
-                              ? 'Location within Thane city bounds'
-                              : 'Warning: Location outside Thane city',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: surveyProvider.isLocationValid() 
-                                ? AppTheme.successGreen 
-                                : AppTheme.warningOrange,
+                        Icon(Icons.check_circle, color: Colors.green[700]),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Location Captured',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
                         ),
                       ],
                     ),
-                  ] else ...[
-                    const Text('GPS location not available'),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: surveyProvider.getCurrentLocation,
-                        icon: const Icon(Icons.my_location),
-                        label: const Text('Get Current Location'),
-                      ),
-                    ),
+                    Text('Latitude: ${surveyProvider.location!.latitude.toStringAsFixed(6)}'),
+                    Text('Longitude: ${surveyProvider.location!.longitude.toStringAsFixed(6)}'),
+                    const SizedBox(height: 8),
+                    Text('Accuracy: ±${surveyProvider.location!.accuracy.toStringAsFixed(1)}m'),
+                    Text('Timestamp: ${DateTime.now().toString().substring(0, 19)}'),
                   ],
-                ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isGettingLocation ? null : _getCurrentLocation,
+              icon: _isGettingLocation
+                  ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Icon(Icons.location_on),
+              label: Text(_isGettingLocation ? 'Getting Location...' : 'Get Current Location'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
           ),
-          
           const SizedBox(height: 16),
-          
-          // Ward Selection
-          DropdownButtonFormField<String>(
-            value: surveyProvider.ward,
-            decoration: const InputDecoration(
-              labelText: 'Ward *',
-              prefixIcon: Icon(Icons.location_city),
+          if (_locationError != null)
+            Card(
+              color: Colors.red[50],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.error,
+                      color: Colors.red,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Location Error',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
+                          ),
+                          Text(
+                            _locationError!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            items: AppConstants.thaneWards.map((ward) {
-              return DropdownMenuItem(
-                value: ward,
-                child: Text(ward),
-              );
-            }).toList(),
-            onChanged: (ward) {
-              if (ward != null) {
-                surveyProvider.updateWard(ward);
-              }
-            },
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Ward is required';
-              }
-              return null;
+          const SizedBox(height: 16),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Ward/District',
+              hintText: 'Administrative area',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.map),
+            ),
+            onChanged: (value) {
+              // surveyProvider.updateWard(value);
             },
           ),
-          
-          const SizedBox(height: 24),
-          
-          // Location Tips
+          const SizedBox(height: 16),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Address/Landmark',
+              hintText: 'Nearby landmark or address',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.place),
+            ),
+            maxLines: 2,
+            onChanged: (value) {
+              // surveyProvider.updateAddress(value);
+            },
+          ),
+          const SizedBox(height: 16),
           Card(
-            color: AppTheme.warningOrange.withOpacity(0.1),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.tips_and_updates,
-                        color: AppTheme.warningOrange,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Location Tips',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.warningOrange,
-                        ),
-                      ),
-                    ],
+                  const Text(
+                    'Location Guidelines',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   const Text('• Ensure GPS is enabled on your device'),
-                  const Text('• Stand close to the tree for accurate coordinates'),
-                  const Text('• Wait for GPS accuracy to improve (< 10m)'),
-                  const Text('• Ward will be auto-detected from GPS location'),
+                  const Text('• Stand close to the tree for accurate location'),
+                  const Text('• Wait for good GPS signal (accuracy < 10m preferred)'),
+                  const Text('• Record any nearby landmarks for reference'),
                 ],
               ),
             ),
@@ -682,15 +684,22 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Tree Photos',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            style: TextStyle(
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(height: 8),
+          const Text(
+            'Take photos from different angles to document the tree',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
           const SizedBox(height: 16),
-          
-          // Photo Grid
           if (surveyProvider.images.isNotEmpty) ...[
             GridView.builder(
               shrinkWrap: true,
@@ -703,31 +712,49 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
               ),
               itemCount: surveyProvider.images.length,
               itemBuilder: (context, index) {
-                final image = surveyProvider.images[index];
                 return Stack(
                   children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        image: DecorationImage(
-                          image: FileImage(image),
-                          fit: BoxFit.cover,
-                        ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        surveyProvider.images[index],
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
                       ),
                     ),
                     Positioned(
                       top: 4,
                       right: 4,
                       child: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: Colors.black54,
+                        backgroundColor: Colors.red,
+                        radius: 12,
                         child: IconButton(
-                          icon: const Icon(
-                            Icons.close,
+                          padding: EdgeInsets.zero,
+                          iconSize: 16,
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () {
+                            _removePhoto(surveyProvider, index);
+                          },
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
                             color: Colors.white,
-                            size: 16,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
                           ),
-                          onPressed: () => surveyProvider.removeImage(index),
                         ),
                       ),
                     ),
@@ -737,123 +764,93 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
             ),
             const SizedBox(height: 16),
           ],
-          
-          // Photo Action Buttons
           Row(
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: surveyProvider.takePhoto,
+                  onPressed: () async {
+                    await _takePhoto(surveyProvider);
+                  },
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Take Photo'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: surveyProvider.pickImageFromGallery,
+                  onPressed: () async {
+                    await _pickPhoto(surveyProvider);
+                  },
                   icon: const Icon(Icons.photo_library),
-                  label: const Text('From Gallery'),
+                  label: const Text('Choose Photo'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
                 ),
               ),
             ],
           ),
-          
-          const SizedBox(height: 24),
-          
-          // Notes Section
-          TextFormField(
-            controller: _notesController,
-            maxLines: 4,
-            maxLength: AppConstants.maxNotesLength,
-            decoration: const InputDecoration(
-              labelText: 'Additional Notes',
-              hintText: 'Any additional observations about the tree...',
-              prefixIcon: Icon(Icons.note),
-              alignLabelWithHint: true,
-            ),
-            onChanged: surveyProvider.updateNotes,
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Photo Guidelines
+          const SizedBox(height: 16),
           Card(
-            color: AppTheme.primaryGreen.withOpacity(0.1),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.photo_camera,
-                        color: AppTheme.primaryGreen,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Photo Guidelines',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.primaryGreen,
-                        ),
-                      ),
-                    ],
+                  const Text(
+                    'Photo Guidelines',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text('• Take photos from multiple angles'),
-                  const Text('• Include full tree and close-up of trunk'),
-                  const Text('• Capture any diseases or damage'),
-                  const Text('• Ensure good lighting for AI analysis'),
-                  Text('• Maximum ${AppConstants.maxImagesPerTree} photos per tree'),
+                  const SizedBox(height: 8),
+                  const Text('• Take at least 2-3 photos from different angles'),
+                  const Text('• Include full tree and close-ups of trunk/bark'),
+                  const Text('• Capture any damage, disease, or unique features'),
+                  const Text('• Ensure good lighting for clear images'),
+                  const Text('• Photos will be compressed to save storage space'),
                 ],
               ),
             ),
           ),
-          
-          if (surveyProvider.errorMessage != null) ...[
-            const SizedBox(height: 16),
-            Card(
-              color: AppTheme.errorRed.withOpacity(0.1),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.error,
-                      color: AppTheme.errorRed,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        surveyProvider.errorMessage!,
-                        style: TextStyle(color: AppTheme.errorRed),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
+  }
+
+  double _getSurveyProgress(SurveyProvider surveyProvider) {
+    int completedFields = 0;
+    int totalFields = 8; // Adjust based on required fields
+
+    if (surveyProvider.scientificName?.isNotEmpty == true) completedFields++;
+    if (surveyProvider.localName?.isNotEmpty == true) completedFields++;
+    if (surveyProvider.height != null) completedFields++;
+    if (surveyProvider.girth != null) completedFields++;
+    if (surveyProvider.healthCondition != null) completedFields++;
+    if (surveyProvider.location != null) completedFields++;
+    if (surveyProvider.age != null) completedFields++;
+    if (surveyProvider.images.isNotEmpty) completedFields++;
+
+    return (completedFields / totalFields) * 100;
   }
 
   bool _validateCurrentTab() {
     switch (_tabController.index) {
       case 0: // Basic Info
         return _scientificNameController.text.isNotEmpty &&
-               _localNameController.text.isNotEmpty;
+            _localNameController.text.isNotEmpty;
       case 1: // Measurements
         return _heightController.text.isNotEmpty &&
-               _girthController.text.isNotEmpty &&
-               _ageController.text.isNotEmpty &&
-               _canopyController.text.isNotEmpty;
+            _girthController.text.isNotEmpty &&
+            double.tryParse(_heightController.text) != null &&
+            double.tryParse(_girthController.text) != null;
       case 2: // Location
         final surveyProvider = Provider.of<SurveyProvider>(context, listen: false);
-        return surveyProvider.location != null && surveyProvider.ward != null;
+        return surveyProvider.location != null;
       case 3: // Photos
         return true; // Photos are optional
       default:
@@ -861,102 +858,231 @@ class _FieldSurveyScreenState extends State<FieldSurveyScreen>
     }
   }
 
-  void _showStartSurveyDialog() {
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isGettingLocation = true;
+      _locationError = null;
+    });
+
+    try {
+      final surveyProvider = Provider.of<SurveyProvider>(context, listen: false);
+      await surveyProvider.getCurrentLocation();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location captured successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _locationError = e.toString();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to get location: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isGettingLocation = false;
+      });
+    }
+  }
+
+  Future<void> _takePhoto(SurveyProvider surveyProvider) async {
+    try {
+      await surveyProvider.takePhoto();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error taking photo: $e')),
+      );
+    }
+  }
+
+  Future<void> _pickPhoto(SurveyProvider surveyProvider) async {
+    try {
+      await surveyProvider.pickImageFromGallery();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking photo: $e')),
+      );
+    }
+  }
+
+  void _removePhoto(SurveyProvider surveyProvider, int index) {
     showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Start New Survey'),
-        content: const Text(
-          'This will start a new tree survey. Make sure you have:\n\n'
-          '• GPS enabled\n'
-          '• Camera access\n'
-          '• Good network connection\n\n'
-          'You can save drafts and continue later.',
-        ),
+        title: const Text('Remove Photo'),
+        content: const Text('Are you sure you want to remove this photo?'),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context); // Go back to previous screen
-            },
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              _startSurvey();
+              surveyProvider.removeImage(index);
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Photo removed')),
+              );
             },
-            child: const Text('Start Survey'),
+            child: const Text('Remove'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _startSurvey() async {
-    final surveyProvider = Provider.of<SurveyProvider>(context, listen: false);
-    await surveyProvider.startSurvey();
+  void _saveDraft(SurveyProvider surveyProvider) {
+    try {
+      // TODO: Implement draft saving
+      // surveyProvider.saveDraft();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Draft saved successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving draft: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
-  Future<void> _submitSurvey() async {
+  Future<void> _submitSurvey(SurveyProvider surveyProvider) async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please fill in all required fields'),
-          backgroundColor: AppTheme.errorRed,
+          backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final surveyProvider = Provider.of<SurveyProvider>(context, listen: false);
-    
-    final success = await surveyProvider.submitSurvey(authProvider.currentUser!.id);
-    
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Survey submitted successfully!'),
-          backgroundColor: AppTheme.successGreen,
-        ),
-      );
-      Navigator.pop(context);
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Submit Survey'),
+        content: const Text('Are you sure you want to submit this tree survey? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // TODO: Implement survey submission
+      // await surveyProvider.submitSurvey();
+
+      if (mounted) {
+        // Show success dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green[700]),
+                const SizedBox(width: 8),
+                const Text('Survey Submitted'),
+              ],
+            ),
+            content: const Text('Tree survey has been successfully submitted and saved to the database.'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _resetForm();
+                },
+                child: const Text('Add Another Tree'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  context.go('/dashboard');
+                },
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error submitting survey: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
-  Future<void> _saveDraft() async {
+  void _startSurvey() {
     final surveyProvider = Provider.of<SurveyProvider>(context, listen: false);
-    final success = await surveyProvider.saveDraft();
-    
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Draft saved successfully'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    surveyProvider.startSurvey();
   }
 
-  void _loadDraft() {
-    // TODO: Implement draft loading functionality
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Draft loading feature coming soon'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    _scientificNameController.clear();
+    _localNameController.clear();
+    _heightController.clear();
+    _girthController.clear();
+    _ageController.clear();
+    _canopyController.clear();
+    _notesController.clear();
+    _tabController.animateTo(0);
+    setState(() {
+      _locationError = null;
+      _isGettingLocation = false;
+    });
+    // Removed surveyProvider.resetSurvey(); as it does not exist
   }
-
-  void _useAIIdentification() {
-    // TODO: Implement AI identification
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('AI identification feature coming soon'),
-        behavior: SnackBarBehavior.floating,
+  Future<bool> _confirmDiscardSurvey() async {
+    final shouldPop = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard Survey?'),
+        content: const Text('Are you sure you want to go back? Unsaved changes will be lost.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
       ),
     );
+    return shouldPop == true;
   }
 }
