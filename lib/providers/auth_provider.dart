@@ -256,10 +256,10 @@ class AuthProvider extends ChangeNotifier {
   // Logout user
   Future<void> logout() async {
     _setLoading(true);
-
     try {
+      // Attempt to logout from backend, but do not block UI
       if (_authToken != null) {
-        await _authService.logout(_authToken!);
+        _authService.logout(_authToken!);
       }
     } catch (e) {
       debugPrint('Error during logout: $e');
@@ -400,6 +400,16 @@ class AuthProvider extends ChangeNotifier {
       _setLoading(false);
       return false;
     }
+  }
+
+  // Utility to clear user data from storage (for development or reset purposes)
+  Future<void> clearUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(AppConstants.userKey);
+    await prefs.remove(AppConstants.authTokenKey);
+    _currentUser = null;
+    _authToken = null;
+    notifyListeners();
   }
 
   // Helper methods
