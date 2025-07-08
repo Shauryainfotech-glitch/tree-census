@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:hive/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/tree.dart';
 import '../utils/constants.dart';
 
@@ -13,7 +14,36 @@ class SurveyService {
   // Submit survey with tree data and images
   Future<Map<String, dynamic>> submitSurvey(Tree tree, List<File> images) async {
     try {
-      // Create multipart request for file upload
+      // For demo purposes, simulate API submission since the server URLs are placeholders
+      // In production, replace this with actual API calls
+
+      // Simulate network delay
+      await Future.delayed(const Duration(seconds: 2));
+
+      // Check if we're in demo mode (placeholder URLs)
+      final isDemoMode = _baseUrl.contains('thanecity.gov.in') ||
+          _baseUrl.contains('localhost') ||
+          _baseUrl.contains('example.com');
+
+      if (isDemoMode) {
+        // Simulate successful submission for demo
+        final surveyId = 'TMC${DateTime.now().millisecondsSinceEpoch}';
+
+        return {
+          'success': true,
+          'tree': {
+            ...tree.toJson(),
+            'id': surveyId,
+            'status': 'submitted',
+            'submittedAt': DateTime.now().toIso8601String(),
+          },
+          'message': 'Survey submitted successfully (Demo Mode)',
+          'surveyId': surveyId,
+          'demo': true,
+        };
+      }
+
+      // Original API submission code for production
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$_baseUrl${ApiEndpoints.surveySubmit}'),
@@ -194,10 +224,10 @@ class SurveyService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final draftsBox = await Hive.openBox('survey_drafts');
-      
+
       final draftId = draftData['surveyId'] ?? DateTime.now().millisecondsSinceEpoch.toString();
       await draftsBox.put(draftId, draftData);
-      
+
       // Keep track of draft IDs
       final draftIds = prefs.getStringList('survey_draft_ids') ?? [];
       if (!draftIds.contains(draftId)) {
@@ -214,11 +244,11 @@ class SurveyService {
     try {
       final draftsBox = await Hive.openBox('survey_drafts');
       final draftData = draftsBox.get(draftId);
-      
+
       if (draftData != null) {
         return Map<String, dynamic>.from(draftData);
       }
-      
+
       return null;
     } catch (e) {
       throw Exception('Failed to load draft: $e');
@@ -231,9 +261,9 @@ class SurveyService {
       final prefs = await SharedPreferences.getInstance();
       final draftsBox = await Hive.openBox('survey_drafts');
       final draftIds = prefs.getStringList('survey_draft_ids') ?? [];
-      
+
       final drafts = <Map<String, dynamic>>[];
-      
+
       for (final draftId in draftIds) {
         final draftData = draftsBox.get(draftId);
         if (draftData != null) {
@@ -242,14 +272,14 @@ class SurveyService {
           drafts.add(draft);
         }
       }
-      
+
       // Sort by timestamp (newest first)
       drafts.sort((a, b) {
         final timestampA = DateTime.tryParse(a['timestamp'] ?? '') ?? DateTime.now();
         final timestampB = DateTime.tryParse(b['timestamp'] ?? '') ?? DateTime.now();
         return timestampB.compareTo(timestampA);
       });
-      
+
       return drafts;
     } catch (e) {
       throw Exception('Failed to get drafts: $e');
@@ -261,9 +291,9 @@ class SurveyService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final draftsBox = await Hive.openBox('survey_drafts');
-      
+
       await draftsBox.delete(draftId);
-      
+
       // Remove from draft IDs list
       final draftIds = prefs.getStringList('survey_draft_ids') ?? [];
       draftIds.remove(draftId);
@@ -386,7 +416,7 @@ class SurveyService {
     try {
       final offlineBox = await Hive.openBox('offline_surveys');
       final surveyId = DateTime.now().millisecondsSinceEpoch.toString();
-      
+
       // Copy images to permanent storage
       final imagePaths = <String>[];
       for (int i = 0; i < images.length; i++) {
@@ -394,7 +424,7 @@ class SurveyService {
         final permanentPath = await _copyImageToPermanentStorage(image, surveyId, i);
         imagePaths.add(permanentPath);
       }
-      
+
       await offlineBox.put(surveyId, {
         'tree': tree.toJson(),
         'imagePaths': imagePaths,
@@ -412,7 +442,7 @@ class SurveyService {
       final directory = await _getOfflineStorageDirectory();
       final fileName = '${surveyId}_$index.jpg';
       final permanentFile = File('${directory.path}/$fileName');
-      
+
       await image.copy(permanentFile.path);
       return permanentFile.path;
     } catch (e) {
@@ -423,11 +453,14 @@ class SurveyService {
   // Get offline storage directory
   Future<Directory> _getOfflineStorageDirectory() async {
     try {
-      final directory = Directory('/data/data/com.thanecity.tmc.tree_census/files/offline_surveys');
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
+      // Use path_provider to get the proper app documents directory
+      final appDocDir = await getApplicationDocumentsDirectory();
+      final offlineDir = Directory('${appDocDir.path}/offline_surveys');
+
+      if (!await offlineDir.exists()) {
+        await offlineDir.create(recursive: true);
       }
-      return directory;
+      return offlineDir;
     } catch (e) {
       throw Exception('Failed to create offline storage directory: $e');
     }
@@ -438,20 +471,20 @@ class SurveyService {
     try {
       final offlineBox = await Hive.openBox('offline_surveys');
       final surveys = offlineBox.values.where((survey) => survey['synced'] != true).toList();
-      
+
       for (final surveyData in surveys) {
         try {
           final tree = Tree.fromJson(surveyData['tree']);
           final imagePaths = List<String>.from(surveyData['imagePaths']);
           final images = imagePaths.map((path) => File(path)).toList();
-          
+
           final result = await submitSurvey(tree, images);
-          
+
           if (result['success'] == true) {
             // Mark as synced
             surveyData['synced'] = true;
             await offlineBox.put(surveyData.key, surveyData);
-            
+
             // Clean up image files
             for (final image in images) {
               try {
@@ -485,13 +518,13 @@ class SurveyService {
     try {
       final offlineBox = await Hive.openBox('offline_surveys');
       final keysToDelete = <dynamic>[];
-      
+
       for (final entry in offlineBox.toMap().entries) {
         if (entry.value['synced'] == true) {
           keysToDelete.add(entry.key);
         }
       }
-      
+
       for (final key in keysToDelete) {
         await offlineBox.delete(key);
       }
@@ -522,20 +555,20 @@ class SurveyService {
   // Export surveys to CSV
   String _exportSurveysToCSV(List<Map<String, dynamic>> surveys, List<String>? fields) {
     final selectedFields = fields ?? [
-      'id', 'species', 'localName', 'height', 'girth', 'age', 
+      'id', 'species', 'localName', 'height', 'girth', 'age',
       'health', 'ward', 'surveyorId', 'timestamp'
     ];
 
     final csvLines = <String>[];
     csvLines.add(selectedFields.join(','));
-    
+
     for (final survey in surveys) {
       final row = selectedFields.map((field) {
         return survey[field]?.toString() ?? '';
       }).join(',');
       csvLines.add(row);
     }
-    
+
     return csvLines.join('\n');
   }
 
