@@ -188,9 +188,11 @@ class SurveyProvider extends ChangeNotifier {
       }
       
       _setLoading(false);
+      notifyListeners(); // Ensure UI updates with new location
     } catch (e) {
-      _setError('Failed to get location: ${e.toString()}');
+      _setError('Failed to get location: ${e.toString()}');
       _setLoading(false);
+      notifyListeners(); // Also notify on error
     }
   }
 

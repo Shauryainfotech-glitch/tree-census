@@ -18,7 +18,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  
+
   @override
   void initState() {
     super.initState();
@@ -52,7 +52,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: _buildAppBar(user),
-      body: _buildBody(user),
+      body: Column(
+        children: [
+          Expanded(
+            child: _buildBody(user),
+          ),
+        ],
+      ),
       bottomNavigationBar: _buildBottomNavigationBar(user),
       drawer: _buildDrawer(user),
     );
@@ -195,8 +201,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 CircleAvatar(
                   radius: 30,
                   backgroundColor: Colors.white.withOpacity(0.2),
-                  child: const Icon(
-                    Icons.admin_panel_settings,
+                  child: Icon(
+                    user.role == UserRole.admin
+                        ? Icons.admin_panel_settings
+                        : user.role == UserRole.surveyor
+                            ? Icons.assignment_ind
+                            : Icons.person,
                     size: 32,
                     color: Colors.white,
                   ),
@@ -205,13 +215,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
-                        'Welcome Administrator',
-                        style: TextStyle(
+                        'Welcome ${user.name.isNotEmpty ? user.name : user.role.displayName}',
+                        style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        user.role.displayName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.white70,
                         ),
                       ),
                     ],

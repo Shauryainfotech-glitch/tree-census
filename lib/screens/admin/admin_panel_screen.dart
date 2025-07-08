@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:tree_census/models/user.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/request_provider.dart';
-import '../../providers/auth_provider.dart';
 import '../../utils/theme.dart';
-import '../../utils/constants.dart';
 import '../../models/tree_request.dart';
 
 class AdminPanelScreen extends StatefulWidget {
@@ -20,25 +19,23 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  // Firestore users stream
+  Stream<List<User>> get _usersStream => FirebaseFirestore.instance
+      .collection('users')
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map((doc) => User.fromJson(doc.data())).toList());
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _loadAdminData();
+    // Removed _loadAdminData(); to avoid loading local/demo data
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadAdminData() async {
-    final dashboardProvider = Provider.of<DashboardProvider>(context, listen: false);
-    final requestProvider = Provider.of<RequestProvider>(context, listen: false);
-    
-    dashboardProvider.loadDemoData();
-    requestProvider.loadDemoData();
   }
 
   @override
@@ -48,9 +45,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            context.go('/home');
-          },
+          onPressed: () => context.go('/home'),
         ),
         title: const Text('Admin Panel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         elevation: 4,
@@ -58,7 +53,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadAdminData,
+            onPressed: () {
+              setState(() {});
+            },
             tooltip: 'Refresh',
           ),
         ],
@@ -67,10 +64,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
           isScrollable: true,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          overlayColor: MaterialStateProperty.all(Colors.transparent), // Remove blue hover
+          overlayColor: WidgetStateProperty.all(Colors.transparent),
           indicator: BoxDecoration(
-            // borderRadius: BorderRadius.circular(30),
-            // color: AppTheme.accentBlue.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(16),
+            color: AppTheme.primaryGreen.withValues(alpha: 0.7),
           ),
           tabs: const [
             Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
@@ -87,7 +84,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
           children: [
             _buildOverviewTab(isWide),
             _buildRequestsTab(isWide),
-            _buildUsersTab(isWide),
+            _buildUsersTab(),
             _buildReportsTab(isWide),
           ],
         ),
@@ -170,28 +167,29 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Card(
-      elevation: 6,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.all(8),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
-            colors: [color.withOpacity(0.85), color.withOpacity(0.65)],
+            colors: [color.withValues(alpha: 0.85), color.withValues(alpha: 0.65)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
         ),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 32, color: Colors.white),
-            const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 4),
-            Text(title, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+            Icon(icon, size: 36, color: Colors.white),
+            const SizedBox(height: 12),
+            Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+            const SizedBox(height: 6),
+            Text(title, style: const TextStyle(fontSize: 15, color: Colors.white70)),
           ],
         ),
       ),
@@ -226,7 +224,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
             const SizedBox(height: 16),
             
             Card(
-              color: AppTheme.errorRed.withOpacity(0.1),
+              color: AppTheme.errorRed.withValues(alpha: 0.1),
               child: ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -243,7 +241,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
                     subtitle: Text(item['description']),
                     trailing: Chip(
                       label: Text(item['count'].toString()),
-                      backgroundColor: AppTheme.errorRed.withOpacity(0.2),
+                      backgroundColor: AppTheme.errorRed.withValues(alpha: 0.2),
                     ),
                     onTap: () => _handleUrgentAction(item),
                   );
@@ -469,7 +467,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: AppColors.requestPending.withOpacity(0.2),
+                          backgroundColor: AppColors.requestPending.withValues(alpha: 0.2),
                           child: Icon(
                             Icons.pending_actions,
                             color: AppColors.requestPending,
@@ -531,121 +529,50 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
     );
   }
 
-  Widget _buildUsersTab(bool isWide) {
-    return SingleChildScrollView(
+  Widget _buildUsersTab() {
+    return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // User Management Header
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'User Management',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Spacer(),
+              const Text('Users', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ElevatedButton.icon(
-                onPressed: _addNewUser,
                 icon: const Icon(Icons.add),
                 label: const Text('Add User'),
+                onPressed: _showAddUserDialog,
               ),
             ],
           ),
-          
           const SizedBox(height: 16),
-          
-          // User Statistics
-          Row(
-            children: [
-              Expanded(
-                child: _buildUserStatCard('Total Users', '45', Icons.people),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildUserStatCard('Active Surveyors', '12', Icons.assignment_ind),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildUserStatCard('Admins', '3', Icons.admin_panel_settings),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Users List
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: AppTheme.primaryGreen,
-                    child: Text('A', style: TextStyle(color: Colors.white)),
-                  ),
-                  title: const Text('Admin User'),
-                  subtitle: const Text('admin@thanecity.gov.in • Administrator'),
-                  trailing: PopupMenuButton(
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Edit'),
+          Expanded(
+            child: StreamBuilder<List<User>>(
+              stream: _usersStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const Center(child: Text('No users found.'));
+                }
+                final users = snapshot.data!;
+                return ListView.builder(
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index];
+                    return Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.person),
+                        title: Text(user.name),
+                        subtitle: Text(user.email),
+                        trailing: Text(user.role.name),
                       ),
-                      const PopupMenuItem(
-                        value: 'disable',
-                        child: Text('Disable'),
-                      ),
-                    ],
-                    onSelected: (value) => _handleUserAction(value),
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: AppTheme.infoBlue,
-                    child: Text('R', style: TextStyle(color: Colors.white)),
-                  ),
-                  title: const Text('Rajesh Kumar'),
-                  subtitle: const Text('rajesh@thanecity.gov.in • Field Surveyor'),
-                  trailing: PopupMenuButton(
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Edit'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'disable',
-                        child: Text('Disable'),
-                      ),
-                    ],
-                    onSelected: (value) => _handleUserAction(value),
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: AppTheme.secondaryGreen,
-                    child: Text('P', style: TextStyle(color: Colors.white)),
-                  ),
-                  title: const Text('Priya Sharma'),
-                  subtitle: const Text('priya@thanecity.gov.in • Field Surveyor'),
-                  trailing: PopupMenuButton(
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Edit'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'disable',
-                        child: Text('Disable'),
-                      ),
-                    ],
-                    onSelected: (value) => _handleUserAction(value),
-                  ),
-                ),
-              ],
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],
@@ -653,117 +580,241 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
     );
   }
 
-  Widget _buildUserStatCard(String title, String value, IconData icon) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Icon(icon, color: AppTheme.primaryGreen),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+  void _showAddUserDialog() {
+    final _formKey = GlobalKey<FormState>();
+    String name = '';
+    String email = '';
+    String mobile = '';
+    UserRole role = UserRole.citizen;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add User'),
+        content: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Name'),
+                  validator: (v) => v == null || v.isEmpty ? 'Enter name' : null,
+                  onChanged: (v) => name = v,
+                ),
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (v) => v == null || v.isEmpty ? 'Enter email' : null,
+                  onChanged: (v) => email = v,
+                ),
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Mobile'),
+                  validator: (v) => v == null || v.isEmpty ? 'Enter mobile' : null,
+                  onChanged: (v) => mobile = v,
+                  keyboardType: TextInputType.phone,
+                ),
+                DropdownButtonFormField<UserRole>(
+                  value: role,
+                  decoration: const InputDecoration(labelText: 'Role'),
+                  items: UserRole.values.map((r) => DropdownMenuItem(
+                    value: r,
+                    child: Text(r.name),
+                  )).toList(),
+                  onChanged: (r) => role = r!,
+                ),
+              ],
             ),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
-            ),
-          ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_formKey.currentState?.validate() ?? false) {
+                final docRef = FirebaseFirestore.instance.collection('users').doc();
+                await docRef.set({
+                  'id': docRef.id,
+                  'name': name,
+                  'email': email,
+                  'mobile': mobile,
+                  'role': role.name,
+                  'isActive': true,
+                  'assignedWards': [],
+                  'lastLogin': null,
+                  'profileImage': null,
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildReportsTab(bool isWide) {
+    // Example recent reports data (replace with real data if available)
+    final recentReports = [
+      {
+        'title': 'Monthly Tree Census Report',
+        'subtitle': 'Generated on 15/01/2025',
+        'icon': Icons.picture_as_pdf,
+        'iconColor': AppTheme.errorRed,
+        'file': 'monthly_census.pdf',
+      },
+      {
+        'title': 'Request Processing Report',
+        'subtitle': 'Generated on 10/01/2025',
+        'icon': Icons.table_chart,
+        'iconColor': AppTheme.successGreen,
+        'file': 'request_processing.xlsx',
+      },
+    ];
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Reports & Analytics',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Report Types
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.2,
+          // Section: Report Types
+          Row(
             children: [
-              _buildReportCard(
-                'Tree Census Report',
-                'Complete tree inventory with statistics',
-                Icons.park,
-                () => _generateReport('tree_census'),
-              ),
-              _buildReportCard(
-                'Request Analysis',
-                'Request trends and processing metrics',
-                Icons.analytics,
-                () => _generateReport('request_analysis'),
-              ),
-              _buildReportCard(
-                'Ward-wise Summary',
-                'Tree distribution across wards',
-                Icons.location_city,
-                () => _generateReport('ward_summary'),
-              ),
-              _buildReportCard(
-                'Health Assessment',
-                'Tree health status and recommendations',
-                Icons.health_and_safety,
-                () => _generateReport('health_assessment'),
+              Icon(Icons.analytics, color: AppTheme.primaryGreen),
+              const SizedBox(width: 8),
+              Text(
+                'Report Types',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryGreen,
+                ),
               ),
             ],
           ),
-          
-          const SizedBox(height: 24),
-          
-          // Recent Reports
-          Text(
-            'Recent Reports',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          Card(
-            child: Column(
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 170,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
               children: [
-                ListTile(
-                  leading: const Icon(Icons.picture_as_pdf, color: AppTheme.errorRed),
-                  title: const Text('Monthly Tree Census Report'),
-                  subtitle: const Text('Generated on 15/01/2025'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.download),
-                    onPressed: () => _downloadReport('monthly_census.pdf'),
-                  ),
+                _buildReportCard(
+                  'Tree Census Report',
+                  'Complete tree inventory with statistics',
+                  Icons.park,
+                  () => _generateReport('tree_census'),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.table_chart, color: AppTheme.successGreen),
-                  title: const Text('Request Processing Report'),
-                  subtitle: const Text('Generated on 10/01/2025'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.download),
-                    onPressed: () => _downloadReport('request_processing.xlsx'),
-                  ),
+                _buildReportCard(
+                  'Request Analysis',
+                  'Request trends and processing metrics',
+                  Icons.analytics,
+                  () => _generateReport('request_analysis'),
+                ),
+                _buildReportCard(
+                  'Ward-wise Summary',
+                  'Tree distribution across wards',
+                  Icons.location_city,
+                  () => _generateReport('ward_summary'),
+                ),
+                _buildReportCard(
+                  'Health Assessment',
+                  'Tree health status and recommendations',
+                  Icons.health_and_safety,
+                  () => _generateReport('health_assessment'),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 32),
+          // Section: Recent Reports
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Recent Reports',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh',
+                  onPressed: () {
+                    setState(() {}); // Replace with your refresh logic if needed
+                  },
+                ),
+              ],
+            ),
+          ),
+          if (recentReports.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32.0),
+              child: Center(
+                child: Text(
+                  'No recent reports found.',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Colors.grey),
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.4,
+              child: ListView.separated(
+                shrinkWrap: true,
+                physics: const BouncingScrollPhysics(),
+                itemCount: recentReports.length,
+                separatorBuilder: (context, i) => Divider(
+                  color: Colors.grey[300],
+                  thickness: 1,
+                  indent: 16,
+                  endIndent: 16,
+                ),
+                itemBuilder: (context, i) {
+                  final report = recentReports[i];
+                  return Card(
+                    elevation: 6,
+                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: (report['iconColor'] as Color?)?.withOpacity(0.15) ?? Colors.grey[200],
+                        child: Icon(
+                          report['icon'] as IconData? ?? Icons.description,
+                          color: report['iconColor'] as Color? ?? Theme.of(context).primaryColor,
+                        ),
+                      ),
+                      title: Text(
+                        report['title']?.toString() ?? 'Untitled',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (report['subtitle'] != null)
+                            Text(report['subtitle'] as String),
+                          Text('Date:  \t${report['date']?.toString() ?? 'Unknown'}'),
+                          Text('Status:  \t${report['status']?.toString() ?? 'N/A'}'),
+                        ],
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.download, size: 20, color: Colors.blueGrey),
+                        tooltip: 'Download',
+                        onPressed: () {
+                          _downloadReport(report['file']?.toString() ?? '');
+                        },
+                      ),
+                      onTap: () {
+                        // TODO: Navigate to report details
+                      },
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  );
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -771,27 +822,36 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
 
   Widget _buildReportCard(String title, String description, IconData icon, VoidCallback onTap) {
     return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.all(8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(icon, size: 32, color: AppTheme.primaryGreen),
-              const SizedBox(height: 12),
+              Icon(icon, size: 36, color: AppTheme.primaryGreen),
+              const SizedBox(height: 16),
               Text(
                 title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: AppTheme.primaryGreen,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 description,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontSize: 14,
+                  color: AppTheme.textSecondary,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -887,24 +947,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
     );
   }
 
-  void _addNewUser() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Add user feature coming soon'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _handleUserAction(String action) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('User $action feature coming soon'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   void _generateReport(String reportType) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -919,48 +961,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
       SnackBar(
         content: Text('Downloading $fileName...'),
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _showProfileInfo() {
-    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
-    if (user == null) return;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Profile Information'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 28,
-                  child: Text(user.name.isNotEmpty ? user.name[0].toUpperCase() : '?'),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(user.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                      Text(user.email, style: const TextStyle(fontSize: 14)),
-                      Text(user.role.displayName, style: const TextStyle(fontSize: 14, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
       ),
     );
   }

@@ -56,7 +56,7 @@ class _RequestListScreenState extends State<RequestListScreen>
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            Navigator.of(context).maybePop();
+            context.go('/home');
           },
         ),
         title: const Text('Requests'),
@@ -76,8 +76,8 @@ class _RequestListScreenState extends State<RequestListScreen>
           unselectedLabelColor: Colors.white70,
           overlayColor: WidgetStateProperty.all(Colors.transparent), // Remove blue hover
           indicator: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
-            color: AppTheme.accentBlue.withAlpha(178), // 0.7 * 255 ≈ 178
+            // borderRadius: BorderRadius.circular(30),
+            // color: AppTheme.accentBlue.withAlpha(178), // 0.7 * 255 ≈ 178
           ),
           tabs: const [
             Tab(text: 'Pending'),
@@ -282,7 +282,7 @@ class _RequestListScreenState extends State<RequestListScreen>
                     children: [
                       Chip(
                         label: Text(request.status.displayName),
-                        backgroundColor: _getStatusColor(request.status).withOpacity(0.2),
+                        backgroundColor: _getStatusColor(request.status).withValues(alpha: 0.2),
                         labelStyle: TextStyle(
                           color: _getStatusColor(request.status),
                           fontWeight: FontWeight.w600,
@@ -468,7 +468,7 @@ class _RequestListScreenState extends State<RequestListScreen>
               ),
               Chip(
                 label: Text(request.status.displayName),
-                backgroundColor: _getStatusColor(request.status).withOpacity(0.2),
+                backgroundColor: _getStatusColor(request.status).withValues(alpha: 0.2),
                 labelStyle: TextStyle(
                   color: _getStatusColor(request.status),
                   fontWeight: FontWeight.w600,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import '../../providers/request_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/tree_request.dart';
@@ -80,7 +81,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              Navigator.of(context).maybePop();
+              context.go('/home');
             },
           ),
           title: const Text('Request Form'),

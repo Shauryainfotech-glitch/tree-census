@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import '../../providers/tree_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/tree.dart';
@@ -46,7 +47,11 @@ class _TreeSearchScreenState extends State<TreeSearchScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            Navigator.of(context).pop();
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              context.go('/home');
+            }
           },
         ),
         title: const Text('Search Trees'),
@@ -304,7 +309,7 @@ class _TreeSearchScreenState extends State<TreeSearchScreen> {
                     children: [
                       Chip(
                         label: Text(tree.health.displayName),
-                        backgroundColor: _getHealthColor(tree.health).withOpacity(0.2),
+                        backgroundColor: _getHealthColor(tree.health).withValues(alpha: 0.2),
                         labelStyle: TextStyle(
                           color: _getHealthColor(tree.health),
                           fontWeight: FontWeight.w600,
@@ -603,7 +608,7 @@ class _TreeSearchScreenState extends State<TreeSearchScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.primaryGreen.withOpacity(0.1),
+        color: AppTheme.primaryGreen.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(

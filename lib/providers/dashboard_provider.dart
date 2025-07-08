@@ -344,74 +344,18 @@ class DashboardProvider extends ChangeNotifier {
 
   // Load demo data for testing
   void loadDemoData() {
+    // Defer notifyListeners to after build phase to avoid setState() during build error
     _statistics = {
       'totalTrees': 1250,
       'heritageTrees': 45,
       'healthyTrees': 1100,
-      'diseasedTrees': 85,
-      'indigenousTrees': 800,
-      'nonIndigenousTrees': 450,
-      'totalCanopy': 15750.5,
-      'averageAge': 28.5,
-      'healthPercentage': 88,
-      'totalRequests': 156,
-      'pendingRequests': 23,
-      'approvedRequests': 98,
-      'rejectedRequests': 12,
-      'inProgressRequests': 15,
-      'completedRequests': 83,
-      'approvalRate': 79,
-      'averageProcessingTime': 5.2,
-      'totalSurveys': 342,
-      'completedSurveys': 298,
-      'activeSurveyors': 12,
-      'surveysThisMonth': 45,
-      'averageSurveyTime': 25.5,
-      'oldPendingRequests': 8,
-      'heritageInspectionDue': 3,
-      'incompleteSurveys': 5,
-      'surveyEfficiency': 87.2,
-      'requestProcessingSpeed': 92.5,
-      'dataAccuracy': 95.8,
-      'userSatisfaction': 4.3,
-      'systemUptime': 99.7,
-      'carbonSequestration': 2850.5,
-      'oxygenProduction': 1920.3,
-      'airPurification': 78.5,
-      'biodiversityIndex': 0.72,
-      'canopyCoverage': 34.8,
-      'wardStatistics': {
-        'Ward 1 - Naupada': {'trees': 125, 'requests': 18},
-        'Ward 2 - Kopri': {'trees': 98, 'requests': 12},
-        'Ward 3 - Diva': {'trees': 156, 'requests': 25},
-      },
-      'speciesDistribution': {
-        'Mangifera indica': 245,
-        'Ficus religiosa': 189,
-        'Azadirachta indica': 167,
-        'Polyalthia longifolia': 134,
-        'Delonix regia': 98,
-      },
-      'healthDistribution': {
-        'Healthy': 1100,
-        'Diseased': 85,
-        'Mechanically Damaged': 45,
-        'Poor': 15,
-        'Uprooted': 5,
-      },
-      'topSurveyors': [
-        {'name': 'Rajesh Kumar', 'surveys': 45, 'accuracy': 96.5},
-        {'name': 'Priya Sharma', 'surveys': 38, 'accuracy': 94.2},
-        {'name': 'Amit Patel', 'surveys': 32, 'accuracy': 92.8},
-      ],
+      'diseasedTrees': 80,
+      'deadTrees': 20,
+      'pendingRequests': 12,
+      'completedRequests': 34,
+      'activeSurveys': 5,
+      'completedSurveys': 18,
     };
-
-    _chartData = {
-      'monthlyTreeAdditions': [45.0, 52.0, 38.0, 67.0, 58.0, 72.0, 65.0, 48.0, 55.0, 62.0, 58.0, 45.0],
-      'monthlyRequests': [12.0, 18.0, 15.0, 22.0, 19.0, 25.0, 28.0, 16.0, 20.0, 24.0, 21.0, 18.0],
-      'monthlySurveys': [28.0, 32.0, 25.0, 38.0, 35.0, 42.0, 45.0, 30.0, 35.0, 40.0, 38.0, 32.0],
-    };
-
     _recentActivities = [
       {
         'type': 'tree_added',

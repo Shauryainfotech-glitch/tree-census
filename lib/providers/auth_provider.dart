@@ -110,56 +110,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Login with mobile OTP
-  Future<bool> loginWithOTP(String mobile, String otp) async {
-    _setLoading(true);
-    _clearError();
 
-    try {
-      final result = await _authService.loginWithOTP(mobile, otp);
-      
-      if (result['success'] == true) {
-        _currentUser = User.fromJson(result['user']);
-        _authToken = result['token'];
-        
-        await _saveUserToStorage();
-        _setLoading(false);
-        notifyListeners();
-        return true;
-      } else {
-        _setError(result['message'] ?? 'OTP verification failed');
-        _setLoading(false);
-        return false;
-      }
-    } catch (e) {
-      _setError('Network error. Please check your connection.');
-      _setLoading(false);
-      return false;
-    }
-  }
-
-  // Send OTP to mobile number
-  Future<bool> sendOTP(String mobile) async {
-    _setLoading(true);
-    _clearError();
-
-    try {
-      final result = await _authService.sendOTP(mobile);
-      
-      if (result['success'] == true) {
-        _setLoading(false);
-        return true;
-      } else {
-        _setError(result['message'] ?? 'Failed to send OTP');
-        _setLoading(false);
-        return false;
-      }
-    } catch (e) {
-      _setError('Network error. Please check your connection.');
-      _setLoading(false);
-      return false;
-    }
-  }
 
   // Register new user
   Future<bool> register({
@@ -440,30 +391,5 @@ class AuthProvider extends ChangeNotifier {
       'role': 'admin',
       'isActive': true,
     };
-  }
-
-  // Demo login for testing
-  Future<bool> demoLogin(UserRole role) async {
-    _setLoading(true);
-    
-    // Simulate network delay
-    await Future.delayed(const Duration(seconds: 1));
-    
-    _currentUser = User(
-      id: '1',
-      name: 'Demo ${role.displayName}',
-      email: 'demo@thanecity.gov.in',
-      mobile: '+91 9876543210',
-      role: role,
-      isActive: true,
-      assignedWards: role == UserRole.surveyor ? ['Ward 1 - Naupada'] : null,
-    );
-    
-    _authToken = 'demo_token_${DateTime.now().millisecondsSinceEpoch}';
-    
-    await _saveUserToStorage();
-    _setLoading(false);
-    notifyListeners();
-    return true;
   }
 }
